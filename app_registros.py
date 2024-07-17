@@ -2,6 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
+import uuid
 
 # Acceder a las credenciales de Firebase almacenadas como secreto
 firebase_secrets = st.secrets["firebase"]
@@ -28,14 +29,30 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 # Función para registrar entrada/salida
-def registrar_evento(trabajador_id, tipo):
+def registrar_evento(trabajador_nombre, tipo):
+    # Verificar si el trabajador ya tiene un ID asignado
+    trabajadores_ref = db.collection("trabajadores")
+    query = trabajadores_ref.where("nombre", "==", trabajador_nombre).limit(1)
+    results = query.stream()
+
+    trabajador_id = None
+    for doc in results:
+        trabajador_id = doc.id
+        break
+
+    # Si el trabajador no tiene un ID, crear uno nuevo
+    if not trabajador_id:
+        trabajador_id = str(uuid.uuid4())
+        trabajadores_ref.document(trabajador_id).set({"nombre": trabajador_nombre})
+
+    # Registrar el evento de entrada/salida
     doc_ref = db.collection("registros").document(trabajador_id)
     doc = doc_ref.get()
 
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"entradas": [], "salidas": []}
+        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": []}
 
     evento = {
         "timestamp": datetime.now().isoformat(),
@@ -52,25 +69,36 @@ def registrar_evento(trabajador_id, tipo):
 # Interfaz de usuario de Streamlit
 st.title("Registro de Entradas y Salidas de Trabajadores")
 
-trabajador_id = st.text_input("ID del Trabajador")
+trabajador_nombre = st.text_input("Nombre del Trabajador")
 
-if trabajador_id:
+if trabajador_nombre:
     if st.button("Registrar Entrada"):
-        registrar_evento(trabajador_id, "entrada")
-        st.success("Entrada registrada para el trabajador " + trabajador_id)
+        registrar_evento(trabajador_nombre, "entrada")
+        st.success("Entrada registrada para el trabajador " + trabajador_nombre)
 
     if st.button("Registrar Salida"):
-        registrar_evento(trabajador_id, "salida")
-        st.success("Salida registrada para el trabajador " + trabajador_id)
+        registrar_evento(trabajador_nombre, "salida")
+        st.success("Salida registrada para el trabajador " + trabajador_nombre)
 
     # Mostrar registros del trabajador
-    doc_ref = db.collection("registros").document(trabajador_id)
-    doc = doc_ref.get()
+    trabajadores_ref = db.collection("trabajadores")
+    query = trabajadores_ref.where("nombre", "==", trabajador_nombre).limit(1)
+    results = query.stream()
 
-    if doc.exists:
-        data = doc.to_dict()
-        st.write("Entradas:", data.get("entradas", []))
-        st.write("Salidas:", data.get("salidas", []))
+    trabajador_id = None
+    for doc in results:
+        trabajador_id = doc.id
+        break
+
+    if trabajador_id:
+        doc_ref = db.collection("registros").document(trabajador_id)
+        doc = doc_ref.get()
+
+        if doc.exists:
+            data = doc.to_dict()
+            st.write("Entradas:", data.get("entradas", []))
+            st.write("Salidas:", data.get("salidas", []))
+        else:
+            st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
     else:
-        st.write("No se encontraron registros para el trabajador " + trabajador_id)
-
+        st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
