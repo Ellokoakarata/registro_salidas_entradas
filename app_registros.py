@@ -2,6 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
+import pytz
 import uuid
 
 # Acceder a las credenciales de Firebase almacenadas como secreto
@@ -27,6 +28,11 @@ if not firebase_admin._apps:
 
 # Acceder a la base de datos de Firestore
 db = firestore.client()
+
+# Función para convertir la hora al huso horario de Perú
+def convertir_a_hora_peru(timestamp):
+    timezone_peru = pytz.timezone('America/Lima')
+    return timestamp.astimezone(timezone_peru)
 
 # Función para registrar entrada/salida
 def registrar_evento(trabajador_nombre, tipo):
@@ -55,13 +61,15 @@ def registrar_evento(trabajador_nombre, tipo):
         data = {"nombre": trabajador_nombre, "entradas": [], "salidas": []}
 
     evento = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
         "tipo": tipo
     }
 
     if tipo == "entrada":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["entradas"].append(evento)
     elif tipo == "salida":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["salidas"].append(evento)
 
     doc_ref.set(data)
@@ -96,9 +104,16 @@ if trabajador_nombre:
 
         if doc.exists:
             data = doc.to_dict()
-            st.write("Entradas:", data.get("entradas", []))
-            st.write("Salidas:", data.get("salidas", []))
+            st.write("Entradas:")
+            for entrada in data.get("entradas", []):
+                st.write(f"- {entrada['timestamp_peru']}")
+
+            st.write("Salidas:")
+            for salida in data.get("salidas", []):
+                st.write(f"- {salida['timestamp_peru']}")
+
         else:
             st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
     else:
         st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
+
