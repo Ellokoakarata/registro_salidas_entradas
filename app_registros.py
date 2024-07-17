@@ -106,11 +106,11 @@ if trabajador_nombre:
             data = doc.to_dict()
             st.write("Entradas:")
             for entrada in data.get("entradas", []):
-                st.write(f"- {entrada['timestamp_peru']}")
+                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(entrada['timestamp']))}")
 
             st.write("Salidas:")
             for salida in data.get("salidas", []):
-                st.write(f"- {salida['timestamp_peru']}")
+                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
         else:
             st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
