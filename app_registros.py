@@ -35,22 +35,7 @@ def convertir_a_hora_peru(timestamp):
     return timestamp.astimezone(timezone_peru)
 
 # Función para registrar entrada/salida
-def registrar_evento(trabajador_nombre, tipo):
-    # Verificar si el trabajador ya tiene un ID asignado
-    trabajadores_ref = db.collection("trabajadores")
-    query = trabajadores_ref.where("nombre", "==", trabajador_nombre).limit(1)
-    results = query.stream()
-
-    trabajador_id = None
-    for doc in results:
-        trabajador_id = doc.id
-        break
-
-    # Si el trabajador no tiene un ID, crear uno nuevo
-    if not trabajador_id:
-        trabajador_id = str(uuid.uuid4())
-        trabajadores_ref.document(trabajador_id).set({"nombre": trabajador_nombre})
-
+def registrar_evento(trabajador_id, tipo):
     # Registrar el evento de entrada/salida
     doc_ref = db.collection("registros").document(trabajador_id)
     doc = doc_ref.get()
@@ -58,7 +43,7 @@ def registrar_evento(trabajador_nombre, tipo):
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
+        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
 
     evento = {
         "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
@@ -111,15 +96,6 @@ def mostrar_tiempo_trabajado(tiempo):
 # Interfaz de usuario de Streamlit
 st.title("Registro de Entradas y Salidas de Trabajadores - Netsat SRL (Aplicación de prueba)")
 
-st.header("Instrucciones")
-st.write("""
-1. Introduce el nombre del trabajador en el campo de texto.
-2. Haz clic en 'Registrar Entrada' o 'Registrar Salida' según corresponda.
-3. La aplicación mostrará las entradas y salidas registradas, así como el tiempo total trabajado.
-4. Si el trabajador no está registrado, se creará automáticamente.
-5. Puedes ver la lista de todos los trabajadores registrados y seleccionar uno para ver sus detalles.
-""")
-
 # Mostrar tabla con todos los trabajadores registrados
 st.header("Lista de Trabajadores Registrados")
 trabajadores_ref = db.collection("trabajadores")
@@ -128,74 +104,51 @@ trabajadores = trabajadores_ref.stream()
 trabajadores_dict = {doc.id: doc.to_dict()["nombre"] for doc in trabajadores}
 
 if trabajadores_dict:
-    trabajador_seleccionado = st.selectbox("Selecciona un trabajador", list(trabajadores_dict.values()))
-
-    if trabajador_seleccionado:
-        trabajador_id = next(key for key, value in trabajadores_dict.items() if value == trabajador_seleccionado)
-        doc_ref = db.collection("registros").document(trabajador_id)
-        doc = doc_ref.get()
-
-        if doc.exists:
-            data = doc.to_dict()
-            st.write(f"Entradas para {trabajador_seleccionado}:")
-            for entrada in data.get("entradas", []):
-                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(entrada['timestamp']))}")
-
-            st.write(f"Salidas para {trabajador_seleccionado}:")
-            for salida in data.get("salidas", []):
-                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
-
-            # Calcular y mostrar el tiempo trabajado
-            tiempo_trabajado = data.get("total_horas_trabajadas", timedelta())
-            st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
-        else:
-            st.write("No se encontraron registros para el trabajador seleccionado.")
+    trabajador_seleccionado = st.selectbox("Selecciona un trabajador", [""] + list(trabajadores_dict.values()))
 else:
-    st.write("No se encontraron trabajadores registrados.")
+    trabajador_seleccionado = ""
 
-# Campo de entrada para registrar eventos
-st.header("Registrar Entrada/Salida")
-trabajador_nombre = st.text_input("Nombre del Trabajador")
+if trabajador_seleccionado:
+    trabajador_id = next(key for key, value in trabajadores_dict.items() if value == trabajador_seleccionado)
+    doc_ref = db.collection("registros").document(trabajador_id)
+    doc = doc_ref.get()
 
-if trabajador_nombre:
-    if st.button("Registrar Entrada"):
-        registrar_evento(trabajador_nombre, "entrada")
-        st.success("Entrada registrada para el trabajador " + trabajador_nombre)
+    if doc.exists:
+        data = doc.to_dict()
+        st.write(f"Entradas para {trabajador_seleccionado}:")
+        for entrada in data.get("entradas", []):
+            st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(entrada['timestamp']))}")
 
-    if st.button("Registrar Salida"):
-        registrar_evento(trabajador_nombre, "salida")
-        st.success("Salida registrada para el trabajador " + trabajador_nombre)
+        st.write(f"Salidas para {trabajador_seleccionado}:")
+        for salida in data.get("salidas", []):
+            st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
-    # Mostrar registros del trabajador actual
-    trabajadores_ref = db.collection("trabajadores")
-    query = trabajadores_ref.where("nombre", "==", trabajador_nombre).limit(1)
-    results = query.stream()
+        # Calcular y mostrar el tiempo trabajado
+        tiempo_trabajado = data.get("total_horas_trabajadas", timedelta())
+        st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
 
-    trabajador_id = None
-    for doc in results:
-        trabajador_id = doc.id
-        break
+        # Campo de entrada para registrar eventos
+        st.header("Registrar Entrada/Salida")
 
-    if trabajador_id:
-        doc_ref = db.collection("registros").document(trabajador_id)
-        doc = doc_ref.get()
+        if st.button("Registrar Entrada"):
+            registrar_evento(trabajador_id, "entrada")
+            st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
 
-        if doc.exists:
-            data = doc.to_dict()
-            st.write("Entradas:")
-            for entrada in data.get("entradas", []):
-                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(entrada['timestamp']))}")
-
-            st.write("Salidas:")
-            for salida in data.get("salidas", []):
-                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
-
-            # Calcular y mostrar el tiempo trabajado
-            tiempo_trabajado = data.get("total_horas_trabajadas", timedelta())
-            st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
-        else:
-            st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
+        if st.button("Registrar Salida"):
+            registrar_evento(trabajador_id, "salida")
+            st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
     else:
-        st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
+        st.write("No se encontraron registros para el trabajador seleccionado.")
+
+# Registrar un nuevo usuario si no está en la lista
+st.header("Registrar Nuevo Trabajador")
+nuevo_trabajador_nombre = st.text_input("Nombre del Nuevo Trabajador")
+
+if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
+    trabajador_id = str(uuid.uuid4())
+    trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
+    st.success("Trabajador registrado exitosamente")
+    st.experimental_rerun()
+
 
 
