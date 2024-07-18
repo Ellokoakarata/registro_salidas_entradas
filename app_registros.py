@@ -105,7 +105,7 @@ def mostrar_tiempo_trabajado(tiempo):
         return f"{seconds} segundos"
 
 # Interfaz de usuario de Streamlit
-st.title("Registro de Entradas y Salidas de Trabajadores-Netsat srl (Apliación de prueba)")
+st.title("Registro de Entradas y Salidas de Trabajadores-Netsat srl (Aplicación de prueba)")
 
 trabajador_nombre = st.text_input("Nombre del Trabajador")
 
