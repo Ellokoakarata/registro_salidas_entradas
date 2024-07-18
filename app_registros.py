@@ -43,34 +43,22 @@ def registrar_evento(trabajador_id, tipo):
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": 0}  # Usar 0 en lugar de timedelta
-
-    ahora = datetime.now(pytz.utc)
-
-    # Verificar si ya hay un registro en las últimas 24 horas
-    if tipo == "entrada":
-        if data["entradas"] and (ahora - datetime.fromisoformat(data["entradas"][-1]["timestamp"])).total_seconds() < 86400:
-            st.warning("Ya se registró una entrada en las últimas 24 horas.")
-            return
-
-    if tipo == "salida":
-        if data["salidas"] and (ahora - datetime.fromisoformat(data["salidas"][-1]["timestamp"])).total_seconds() < 86400:
-            st.warning("Ya se registró una salida en las últimas 24 horas.")
-            return
+        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
 
     evento = {
-        "timestamp": ahora.isoformat(),  # Hora actual en UTC
+        "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
         "tipo": tipo
     }
 
-    evento["timestamp_peru"] = convertir_a_hora_peru(ahora)  # Hora actual en Perú
     if tipo == "entrada":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["entradas"].append(evento)
     elif tipo == "salida":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["salidas"].append(evento)
         # Calcular el tiempo trabajado en esta sesión y sumarlo al total
         tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
-        data["total_horas_trabajadas"] += tiempo_trabajado_sesion.total_seconds()  # Almacenar en segundos
+        data["total_horas_trabajadas"] += tiempo_trabajado_sesion
 
     doc_ref.set(data)
 
@@ -110,8 +98,10 @@ trabajadores = trabajadores_ref.stream()
 
 trabajadores_dict = {doc.id: doc.to_dict()["nombre"] for doc in trabajadores}
 
-# Seleccionar trabajador
-trabajador_seleccionado = st.selectbox("Selecciona un trabajador", [""] + list(trabajadores_dict.values()))
+if trabajadores_dict:
+    trabajador_seleccionado = st.selectbox("Selecciona un trabajador", [""] + list(trabajadores_dict.values()))
+else:
+    trabajador_seleccionado = ""
 
 if trabajador_seleccionado:
     trabajador_id = next(key for key, value in trabajadores_dict.items() if value == trabajador_seleccionado)
@@ -129,7 +119,7 @@ if trabajador_seleccionado:
             st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
         # Calcular y mostrar el tiempo trabajado
-        tiempo_trabajado = timedelta(seconds=data["total_horas_trabajadas"])  # Convertir de segundos a timedelta
+        tiempo_trabajado = calcular_tiempo_trabajado(data)
         st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
 
         # Campo de entrada para registrar eventos
@@ -137,9 +127,11 @@ if trabajador_seleccionado:
 
         if st.button("Registrar Entrada"):
             registrar_evento(trabajador_id, "entrada")
+            st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
 
         if st.button("Registrar Salida"):
             registrar_evento(trabajador_id, "salida")
+            st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
     else:
         st.write("No se encontraron registros para el trabajador seleccionado.")
 
@@ -150,16 +142,7 @@ nuevo_trabajador_nombre = st.text_input("Nombre del Nuevo Trabajador")
 if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajador_id = str(uuid.uuid4())
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
-    
-    # Crear un documento de registro inicial para el nuevo trabajador
-    db.collection("registros").document(trabajador_id).set({"entradas": [], "salidas": [], "total_horas_trabajadas": 0})  # Usar 0 en lugar de timedelta
-
     st.success("Trabajador registrado exitosamente")
-    
-    # Seleccionar el nuevo trabajador automáticamente
-    st.session_state.trabajador_seleccionado = nuevo_trabajador_nombre
-    st.rerun()  # Recargar la interfaz
+    st.rerun()
 
-# Verificar si hay un trabajador seleccionado en la sesión
-if 'trabajador_seleccionado' in st.session_state:
-    trabajador_seleccionado = st.session_state.trabajador_seleccionado
+
