@@ -150,8 +150,16 @@ nuevo_trabajador_nombre = st.text_input("Nombre del Nuevo Trabajador")
 if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajador_id = str(uuid.uuid4())
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
+    
+    # Crear un documento de registro inicial para el nuevo trabajador
+    db.collection("registros").document(trabajador_id).set({"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()})
+
     st.success("Trabajador registrado exitosamente")
     
     # Seleccionar el nuevo trabajador automáticamente
     st.session_state.trabajador_seleccionado = nuevo_trabajador_nombre
-    st.rerun()  # Recargar la interfaz
+    st.experimental_rerun()  # Recargar la interfaz
+
+# Verificar si hay un trabajador seleccionado en la sesión
+if 'trabajador_seleccionado' in st.session_state:
+    trabajador_seleccionado = st.session_state.trabajador_seleccionado
