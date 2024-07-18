@@ -45,16 +45,28 @@ def registrar_evento(trabajador_id, tipo):
     else:
         data = {"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
 
+    ahora = datetime.now(pytz.utc)
+
+    # Verificar si ya hay un registro en las últimas 24 horas
+    if tipo == "entrada":
+        if data["entradas"] and (ahora - datetime.fromisoformat(data["entradas"][-1]["timestamp"])).total_seconds() < 86400:
+            st.warning("Ya se registró una entrada en las últimas 24 horas.")
+            return
+
+    if tipo == "salida":
+        if data["salidas"] and (ahora - datetime.fromisoformat(data["salidas"][-1]["timestamp"])).total_seconds() < 86400:
+            st.warning("Ya se registró una salida en las últimas 24 horas.")
+            return
+
     evento = {
-        "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
+        "timestamp": ahora.isoformat(),  # Hora actual en UTC
         "tipo": tipo
     }
 
+    evento["timestamp_peru"] = convertir_a_hora_peru(ahora)  # Hora actual en Perú
     if tipo == "entrada":
-        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["entradas"].append(evento)
     elif tipo == "salida":
-        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["salidas"].append(evento)
         # Calcular el tiempo trabajado en esta sesión y sumarlo al total
         tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
@@ -127,11 +139,9 @@ if trabajador_seleccionado:
 
         if st.button("Registrar Entrada"):
             registrar_evento(trabajador_id, "entrada")
-            st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
 
         if st.button("Registrar Salida"):
             registrar_evento(trabajador_id, "salida")
-            st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
     else:
         st.write("No se encontraron registros para el trabajador seleccionado.")
 
@@ -143,6 +153,4 @@ if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajador_id = str(uuid.uuid4())
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
     st.success("Trabajador registrado exitosamente")
-    st.rerun()
-
-
+    st.rerun()  # Usar experimental_rerun para recargar la interfaz
