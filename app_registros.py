@@ -122,7 +122,8 @@ if trabajador_nombre:
             for salida in data.get("salidas", []):
                 st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
-            st.write(f"Total de horas trabajadas: {data['total_horas_trabajadas']:.2f} horas")
+            total_horas_trabajadas = data.get("total_horas_trabajadas", 0)
+            st.write(f"Total de horas trabajadas: {total_horas_trabajadas:.2f} horas")
         else:
             st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
     else:
