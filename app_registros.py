@@ -110,10 +110,8 @@ trabajadores = trabajadores_ref.stream()
 
 trabajadores_dict = {doc.id: doc.to_dict()["nombre"] for doc in trabajadores}
 
-if trabajadores_dict:
-    trabajador_seleccionado = st.selectbox("Selecciona un trabajador", [""] + list(trabajadores_dict.values()))
-else:
-    trabajador_seleccionado = ""
+# Seleccionar trabajador
+trabajador_seleccionado = st.selectbox("Selecciona un trabajador", [""] + list(trabajadores_dict.values()))
 
 if trabajador_seleccionado:
     trabajador_id = next(key for key, value in trabajadores_dict.items() if value == trabajador_seleccionado)
@@ -153,4 +151,7 @@ if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajador_id = str(uuid.uuid4())
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
     st.success("Trabajador registrado exitosamente")
-    st.rerun()  # Usar experimental_rerun para recargar la interfaz
+    
+    # Seleccionar el nuevo trabajador automáticamente
+    st.session_state.trabajador_seleccionado = nuevo_trabajador_nombre
+    st.rerun()  # Recargar la interfaz
