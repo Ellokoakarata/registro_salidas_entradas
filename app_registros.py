@@ -29,7 +29,6 @@ if not firebase_admin._apps:
 # Acceder a la base de datos de Firestore
 db = firestore.client()
 
-# Función para convertir la hora al huso horario de Perú
 def convertir_a_hora_peru(timestamp):
     timezone_peru = pytz.timezone('America/Lima')
     return timestamp.astimezone(timezone_peru)
@@ -58,43 +57,21 @@ def verificar_registro_hoy(data, tipo):
             return True
     return False
 
-# Función para registrar entrada/salida
-def registrar_evento(trabajador_id, tipo):
-    doc_ref = db.collection("registros").document(trabajador_id)
-    doc = doc_ref.get()
-
-    if doc.exists:
-        data = doc.to_dict()
-    else:
-        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": "0:00:00"}
-
-    # Verificar si ya se ha registrado una entrada o salida hoy
-    if verificar_registro_hoy(data, tipo):
-        return False
-
-    now = datetime.now(pytz.utc)
-    evento = {
-        "timestamp": now.isoformat(),
-        "timestamp_peru": convertir_a_hora_peru(now).strftime("%Y-%m-%d %H:%M:%S")
-    }
-
-    if tipo == "entradas":
-        data["entradas"].append(evento)
-    elif tipo == "salidas":
-        data["salidas"].append(evento)
-        tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
-        data["total_horas_trabajadas"] = str(tiempo_trabajado_sesion)
-
-    doc_ref.set(data)
-    return True
-
 # Función para calcular el tiempo trabajado
 def calcular_tiempo_trabajado(data):
     total_tiempo = timedelta()
+    entradas = sorted([parse_datetime(e["timestamp"]) for e in data.get("entradas", [])])
+    salidas = sorted([parse_datetime(s["timestamp"]) for s in data.get("salidas", [])])
 
-    entradas = [parse_datetime(e["timestamp"]) for e in data.get("entradas", [])]
-    salidas = [parse_datetime(s["timestamp"]) for s in data.get("salidas", [])]
+    # Asegurarse de que hay al menos una entrada y una salida
+    if not entradas or not salidas:
+        return total_tiempo
 
+    # Si hay más entradas que salidas, añadir la hora actual como última salida
+    if len(entradas) > len(salidas):
+        salidas.append(datetime.now(pytz.utc))
+
+    # Calcular el tiempo trabajado para cada par de entrada-salida
     for entrada, salida in zip(entradas, salidas):
         if salida > entrada:
             total_tiempo += salida - entrada
@@ -124,6 +101,38 @@ def crear_registro_inicial(trabajador_id):
         "salidas": [],
         "total_horas_trabajadas": "0:00:00"
     })
+
+# Función para registrar entrada/salida
+def registrar_evento(trabajador_id, tipo):
+    doc_ref = db.collection("registros").document(trabajador_id)
+    doc = doc_ref.get()
+
+    if doc.exists:
+        data = doc.to_dict()
+    else:
+        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": "0:00:00"}
+
+    # Verificar si ya se ha registrado una entrada o salida hoy
+    if verificar_registro_hoy(data, tipo):
+        return False
+
+    now = datetime.now(pytz.utc)
+    evento = {
+        "timestamp": now.isoformat(),
+        "timestamp_peru": convertir_a_hora_peru(now).strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    if tipo == "entradas":
+        data["entradas"].append(evento)
+    elif tipo == "salidas":
+        data["salidas"].append(evento)
+    
+    # Calcular el tiempo trabajado después de cada registro
+    tiempo_trabajado = calcular_tiempo_trabajado(data)
+    data["total_horas_trabajadas"] = str(tiempo_trabajado)
+
+    doc_ref.set(data)
+    return True
 
 # Interfaz de usuario de Streamlit
 st.title("Registro de Entradas y Salidas de Trabajadores - Netsat SRL (Aplicación de prueba)")
@@ -156,7 +165,7 @@ if trabajador_seleccionado:
             st.write(f"- {formatear_fecha_hora_peru(salida['timestamp'])}")
 
         # Calcular y mostrar el tiempo trabajado
-        tiempo_trabajado = data.get("total_horas_trabajadas", "0:00:00")
+        tiempo_trabajado = calcular_tiempo_trabajado(data)
         st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
 
         # Campo de entrada para registrar eventos
