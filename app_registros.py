@@ -36,6 +36,7 @@ def convertir_a_hora_peru(timestamp):
 
 # Función para registrar entrada/salida
 def registrar_evento(trabajador_id, tipo):
+    # Registrar el evento de entrada/salida
     doc_ref = db.collection("registros").document(trabajador_id)
     doc = doc_ref.get()
 
@@ -44,32 +45,22 @@ def registrar_evento(trabajador_id, tipo):
     else:
         data = {"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
 
-    # Obtener la fecha actual en Perú
-    ahora_peru = convertir_a_hora_peru(datetime.now(pytz.utc))
-    fecha_hoy = ahora_peru.date()
-
-    # Verificar si ya se ha registrado una entrada/salida hoy
-    eventos_hoy = [e for e in data[tipo + "s"] if datetime.fromisoformat(e["timestamp_peru"]).date() == fecha_hoy]
-
-    if eventos_hoy:
-        st.warning(f"Ya has registrado una {tipo} hoy.")
-        return
-
     evento = {
         "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
-        "timestamp_peru": ahora_peru.isoformat(),  # Hora actual en Perú
         "tipo": tipo
     }
 
-    data[tipo + "s"].append(evento)
-
-    if tipo == "salida":
+    if tipo == "entrada":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
+        data["entradas"].append(evento)
+    elif tipo == "salida":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
+        data["salidas"].append(evento)
         # Calcular el tiempo trabajado en esta sesión y sumarlo al total
         tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
         data["total_horas_trabajadas"] += tiempo_trabajado_sesion
 
     doc_ref.set(data)
-    st.success(f"{tipo.capitalize()} registrada correctamente.")
 
 # Función para calcular el tiempo trabajado
 def calcular_tiempo_trabajado(data):
@@ -136,9 +127,11 @@ if trabajador_seleccionado:
 
         if st.button("Registrar Entrada"):
             registrar_evento(trabajador_id, "entrada")
+            st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
 
         if st.button("Registrar Salida"):
             registrar_evento(trabajador_id, "salida")
+            st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
     else:
         st.write("No se encontraron registros para el trabajador seleccionado.")
 
@@ -150,7 +143,6 @@ if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajador_id = str(uuid.uuid4())
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
     st.success("Trabajador registrado exitosamente")
-    st.experimental_rerun()
-
+    st.rerun()
 
 
