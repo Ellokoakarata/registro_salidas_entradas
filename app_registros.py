@@ -188,14 +188,14 @@ if trabajador_seleccionado:
             crear_registro_inicial(trabajador_id)
             st.success("Registro inicial creado. Por favor, seleccione el trabajador nuevamente.")
             st.rerun()
+else:
+    # Mostrar la opción de registrar nuevo trabajador solo si no se ha seleccionado ningún trabajador
+    st.header("Registrar Nuevo Trabajador")
+    nuevo_trabajador_nombre = st.text_input("Nombre del Nuevo Trabajador")
 
-# Registrar un nuevo usuario si no está en la lista
-st.header("Registrar Nuevo Trabajador")
-nuevo_trabajador_nombre = st.text_input("Nombre del Nuevo Trabajador")
-
-if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
-    trabajador_id = str(uuid.uuid4())
-    trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
-    crear_registro_inicial(trabajador_id)
-    st.success("Trabajador registrado exitosamente y registro inicial creado")
-    st.rerun()
+    if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
+        trabajador_id = str(uuid.uuid4())
+        trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
+        crear_registro_inicial(trabajador_id)
+        st.success("Trabajador registrado exitosamente y registro inicial creado")
+        st.rerun()
