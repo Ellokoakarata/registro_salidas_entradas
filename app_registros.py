@@ -58,7 +58,7 @@ def registrar_evento(trabajador_nombre, tipo):
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": []}
+        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
 
     evento = {
         "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
@@ -71,6 +71,9 @@ def registrar_evento(trabajador_nombre, tipo):
     elif tipo == "salida":
         evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["salidas"].append(evento)
+        # Calcular el tiempo trabajado en esta sesión y sumarlo al total
+        tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
+        data["total_horas_trabajadas"] += tiempo_trabajado_sesion
 
     doc_ref.set(data)
 
@@ -87,6 +90,7 @@ def calcular_tiempo_trabajado(data):
             timestamp_salida = datetime.fromisoformat(salida["timestamp"])
             if timestamp_salida > timestamp_entrada:
                 total_tiempo += timestamp_salida - timestamp_entrada
+                salidas.remove(salida)
                 break
 
     return total_tiempo
@@ -105,8 +109,52 @@ def mostrar_tiempo_trabajado(tiempo):
         return f"{seconds} segundos"
 
 # Interfaz de usuario de Streamlit
-st.title("Registro de Entradas y Salidas de Trabajadores-Netsat srl (Aplicación de prueba)")
+st.title("Registro de Entradas y Salidas de Trabajadores - Netsat SRL (Aplicación de prueba)")
 
+st.header("Instrucciones")
+st.write("""
+1. Introduce el nombre del trabajador en el campo de texto.
+2. Haz clic en 'Registrar Entrada' o 'Registrar Salida' según corresponda.
+3. La aplicación mostrará las entradas y salidas registradas, así como el tiempo total trabajado.
+4. Si el trabajador no está registrado, se creará automáticamente.
+5. Puedes ver la lista de todos los trabajadores registrados y seleccionar uno para ver sus detalles.
+""")
+
+# Mostrar tabla con todos los trabajadores registrados
+st.header("Lista de Trabajadores Registrados")
+trabajadores_ref = db.collection("trabajadores")
+trabajadores = trabajadores_ref.stream()
+
+trabajadores_dict = {doc.id: doc.to_dict()["nombre"] for doc in trabajadores}
+
+if trabajadores_dict:
+    trabajador_seleccionado = st.selectbox("Selecciona un trabajador", list(trabajadores_dict.values()))
+
+    if trabajador_seleccionado:
+        trabajador_id = next(key for key, value in trabajadores_dict.items() if value == trabajador_seleccionado)
+        doc_ref = db.collection("registros").document(trabajador_id)
+        doc = doc_ref.get()
+
+        if doc.exists:
+            data = doc.to_dict()
+            st.write(f"Entradas para {trabajador_seleccionado}:")
+            for entrada in data.get("entradas", []):
+                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(entrada['timestamp']))}")
+
+            st.write(f"Salidas para {trabajador_seleccionado}:")
+            for salida in data.get("salidas", []):
+                st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
+
+            # Calcular y mostrar el tiempo trabajado
+            tiempo_trabajado = data.get("total_horas_trabajadas", timedelta())
+            st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
+        else:
+            st.write("No se encontraron registros para el trabajador seleccionado.")
+else:
+    st.write("No se encontraron trabajadores registrados.")
+
+# Campo de entrada para registrar eventos
+st.header("Registrar Entrada/Salida")
 trabajador_nombre = st.text_input("Nombre del Trabajador")
 
 if trabajador_nombre:
@@ -118,7 +166,7 @@ if trabajador_nombre:
         registrar_evento(trabajador_nombre, "salida")
         st.success("Salida registrada para el trabajador " + trabajador_nombre)
 
-    # Mostrar registros del trabajador
+    # Mostrar registros del trabajador actual
     trabajadores_ref = db.collection("trabajadores")
     query = trabajadores_ref.where("nombre", "==", trabajador_nombre).limit(1)
     results = query.stream()
@@ -143,11 +191,11 @@ if trabajador_nombre:
                 st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
             # Calcular y mostrar el tiempo trabajado
-            tiempo_trabajado = calcular_tiempo_trabajado(data)
+            tiempo_trabajado = data.get("total_horas_trabajadas", timedelta())
             st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
-
         else:
             st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
     else:
         st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
+
 
