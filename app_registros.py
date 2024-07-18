@@ -1,7 +1,7 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import uuid
 
@@ -58,20 +58,30 @@ def registrar_evento(trabajador_nombre, tipo):
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": []}
+        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": [], "total_horas_trabajadas": 0}
 
     evento = {
         "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
+        "timestamp_peru": convertir_a_hora_peru(datetime.now(pytz.utc)).isoformat(),  # Hora actual en Perú
         "tipo": tipo
     }
 
     if tipo == "entrada":
-        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["entradas"].append(evento)
     elif tipo == "salida":
-        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["salidas"].append(evento)
+        # Calcular horas trabajadas
+        if data["entradas"]:
+            # Obtener la última entrada registrada
+            entrada_mas_reciente = datetime.fromisoformat(data["entradas"][-1]["timestamp"])
+            # Obtener la hora de la salida actual
+            salida_mas_reciente = datetime.fromisoformat(evento["timestamp"])
+            # Calcular la diferencia en horas
+            horas_trabajadas = (salida_mas_reciente - entrada_mas_reciente).total_seconds() / 3600
+            # Sumar las horas trabajadas al total acumulado
+            data["total_horas_trabajadas"] += horas_trabajadas
 
+    # Guardar el registro actualizado en Firestore
     doc_ref.set(data)
 
 # Interfaz de usuario de Streamlit
@@ -112,6 +122,7 @@ if trabajador_nombre:
             for salida in data.get("salidas", []):
                 st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
+            st.write(f"Total de horas trabajadas: {data['total_horas_trabajadas']:.2f} horas")
         else:
             st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
     else:
