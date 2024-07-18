@@ -34,9 +34,17 @@ def convertir_a_hora_peru(timestamp):
     timezone_peru = pytz.timezone('America/Lima')
     return timestamp.astimezone(timezone_peru)
 
+# Función para verificar si ya se ha registrado una entrada o salida hoy
+def verificar_registro_hoy(data, tipo):
+    hoy = datetime.now(pytz.utc).date()
+    for registro in data.get(tipo, []):
+        fecha_registro = datetime.fromisoformat(registro['timestamp']).date()
+        if fecha_registro == hoy:
+            return True
+    return False
+
 # Función para registrar entrada/salida
 def registrar_evento(trabajador_id, tipo):
-    # Registrar el evento de entrada/salida
     doc_ref = db.collection("registros").document(trabajador_id)
     doc = doc_ref.get()
 
@@ -45,22 +53,24 @@ def registrar_evento(trabajador_id, tipo):
     else:
         data = {"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
 
+    # Verificar si ya se ha registrado una entrada o salida hoy
+    if verificar_registro_hoy(data, tipo):
+        return False
+
     evento = {
-        "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
-        "tipo": tipo
+        "timestamp": datetime.now(pytz.utc).isoformat(),
+        "timestamp_peru": convertir_a_hora_peru(datetime.now(pytz.utc)).isoformat()
     }
 
-    if tipo == "entrada":
-        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
+    if tipo == "entradas":
         data["entradas"].append(evento)
-    elif tipo == "salida":
-        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
+    elif tipo == "salidas":
         data["salidas"].append(evento)
-        # Calcular el tiempo trabajado en esta sesión y sumarlo al total
         tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
-        data["total_horas_trabajadas"] += tiempo_trabajado_sesion
+        data["total_horas_trabajadas"] = str(timedelta(seconds=tiempo_trabajado_sesion.total_seconds()))
 
     doc_ref.set(data)
+    return True
 
 # Función para calcular el tiempo trabajado
 def calcular_tiempo_trabajado(data):
@@ -77,6 +87,8 @@ def calcular_tiempo_trabajado(data):
 
 # Función para mostrar el tiempo trabajado en horas, minutos y segundos
 def mostrar_tiempo_trabajado(tiempo):
+    if isinstance(tiempo, str):
+        tiempo = timedelta(seconds=float(tiempo))
     total_seconds = int(tiempo.total_seconds())
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -112,26 +124,33 @@ if trabajador_seleccionado:
         data = doc.to_dict()
         st.write(f"Entradas para {trabajador_seleccionado}:")
         for entrada in data.get("entradas", []):
-            st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(entrada['timestamp']))}")
+            st.write(f"- {datetime.fromisoformat(entrada['timestamp_peru']).strftime('%Y-%m-%d %H:%M:%S')}")
 
         st.write(f"Salidas para {trabajador_seleccionado}:")
         for salida in data.get("salidas", []):
-            st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
+            st.write(f"- {datetime.fromisoformat(salida['timestamp_peru']).strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Calcular y mostrar el tiempo trabajado
-        tiempo_trabajado = calcular_tiempo_trabajado(data)
+        tiempo_trabajado = data.get("total_horas_trabajadas", "0:00:00")
         st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
 
         # Campo de entrada para registrar eventos
         st.header("Registrar Entrada/Salida")
 
-        if st.button("Registrar Entrada"):
-            registrar_evento(trabajador_id, "entrada")
-            st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Registrar Entrada"):
+                if registrar_evento(trabajador_id, "entradas"):
+                    st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
+                else:
+                    st.warning("Ya se ha registrado una entrada hoy para este trabajador")
 
-        if st.button("Registrar Salida"):
-            registrar_evento(trabajador_id, "salida")
-            st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
+        with col2:
+            if st.button("Registrar Salida"):
+                if registrar_evento(trabajador_id, "salidas"):
+                    st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
+                else:
+                    st.warning("Ya se ha registrado una salida hoy para este trabajador")
     else:
         st.write("No se encontraron registros para el trabajador seleccionado.")
 
@@ -144,5 +163,4 @@ if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
     st.success("Trabajador registrado exitosamente")
     st.rerun()
-
 
