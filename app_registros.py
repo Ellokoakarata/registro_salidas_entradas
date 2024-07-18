@@ -34,11 +34,19 @@ def convertir_a_hora_peru(timestamp):
     timezone_peru = pytz.timezone('America/Lima')
     return timestamp.astimezone(timezone_peru)
 
+# Función para parsear la fecha y hora
+def parse_datetime(datetime_str):
+    try:
+        return datetime.fromisoformat(datetime_str)
+    except ValueError:
+        # Si falla, intentamos con un formato específico
+        return datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S.%f%z")
+
 # Función para verificar si ya se ha registrado una entrada o salida hoy
 def verificar_registro_hoy(data, tipo):
     hoy = datetime.now(pytz.utc).date()
     for registro in data.get(tipo, []):
-        fecha_registro = datetime.fromisoformat(registro['timestamp']).date()
+        fecha_registro = parse_datetime(registro['timestamp']).date()
         if fecha_registro == hoy:
             return True
     return False
@@ -51,15 +59,16 @@ def registrar_evento(trabajador_id, tipo):
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
+        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": "0:00:00"}
 
     # Verificar si ya se ha registrado una entrada o salida hoy
     if verificar_registro_hoy(data, tipo):
         return False
 
+    now = datetime.now(pytz.utc)
     evento = {
-        "timestamp": datetime.now(pytz.utc).isoformat(),
-        "timestamp_peru": convertir_a_hora_peru(datetime.now(pytz.utc)).isoformat()
+        "timestamp": now.isoformat(),
+        "timestamp_peru": convertir_a_hora_peru(now).strftime("%Y-%m-%d %H:%M:%S")
     }
 
     if tipo == "entradas":
@@ -67,7 +76,7 @@ def registrar_evento(trabajador_id, tipo):
     elif tipo == "salidas":
         data["salidas"].append(evento)
         tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
-        data["total_horas_trabajadas"] = str(timedelta(seconds=tiempo_trabajado_sesion.total_seconds()))
+        data["total_horas_trabajadas"] = str(tiempo_trabajado_sesion)
 
     doc_ref.set(data)
     return True
@@ -76,8 +85,8 @@ def registrar_evento(trabajador_id, tipo):
 def calcular_tiempo_trabajado(data):
     total_tiempo = timedelta()
 
-    entradas = [datetime.fromisoformat(e["timestamp"]) for e in data.get("entradas", [])]
-    salidas = [datetime.fromisoformat(s["timestamp"]) for s in data.get("salidas", [])]
+    entradas = [parse_datetime(e["timestamp"]) for e in data.get("entradas", [])]
+    salidas = [parse_datetime(s["timestamp"]) for s in data.get("salidas", [])]
 
     for entrada, salida in zip(entradas, salidas):
         if salida > entrada:
@@ -88,7 +97,7 @@ def calcular_tiempo_trabajado(data):
 # Función para mostrar el tiempo trabajado en horas, minutos y segundos
 def mostrar_tiempo_trabajado(tiempo):
     if isinstance(tiempo, str):
-        tiempo = timedelta(seconds=float(tiempo))
+        tiempo = timedelta(seconds=sum(float(x) * 60 ** i for i, x in enumerate(reversed(tiempo.split(':')))))
     total_seconds = int(tiempo.total_seconds())
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -124,11 +133,11 @@ if trabajador_seleccionado:
         data = doc.to_dict()
         st.write(f"Entradas para {trabajador_seleccionado}:")
         for entrada in data.get("entradas", []):
-            st.write(f"- {datetime.fromisoformat(entrada['timestamp_peru']).strftime('%Y-%m-%d %H:%M:%S')}")
+            st.write(f"- {entrada['timestamp_peru']}")
 
         st.write(f"Salidas para {trabajador_seleccionado}:")
         for salida in data.get("salidas", []):
-            st.write(f"- {datetime.fromisoformat(salida['timestamp_peru']).strftime('%Y-%m-%d %H:%M:%S')}")
+            st.write(f"- {salida['timestamp_peru']}")
 
         # Calcular y mostrar el tiempo trabajado
         tiempo_trabajado = data.get("total_horas_trabajadas", "0:00:00")
@@ -163,4 +172,3 @@ if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
     st.success("Trabajador registrado exitosamente")
     st.rerun()
-
