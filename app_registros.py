@@ -66,17 +66,12 @@ def registrar_evento(trabajador_id, tipo):
 def calcular_tiempo_trabajado(data):
     total_tiempo = timedelta()
 
-    entradas = data.get("entradas", [])
-    salidas = data.get("salidas", [])
+    entradas = [datetime.fromisoformat(e["timestamp"]) for e in data.get("entradas", [])]
+    salidas = [datetime.fromisoformat(s["timestamp"]) for s in data.get("salidas", [])]
 
-    for entrada in entradas:
-        timestamp_entrada = datetime.fromisoformat(entrada["timestamp"])
-        for salida in salidas:
-            timestamp_salida = datetime.fromisoformat(salida["timestamp"])
-            if timestamp_salida > timestamp_entrada:
-                total_tiempo += timestamp_salida - timestamp_entrada
-                salidas.remove(salida)
-                break
+    for entrada, salida in zip(entradas, salidas):
+        if salida > entrada:
+            total_tiempo += salida - entrada
 
     return total_tiempo
 
@@ -124,7 +119,7 @@ if trabajador_seleccionado:
             st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
         # Calcular y mostrar el tiempo trabajado
-        tiempo_trabajado = data.get("total_horas_trabajadas", timedelta())
+        tiempo_trabajado = calcular_tiempo_trabajado(data)
         st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
 
         # Campo de entrada para registrar eventos
@@ -149,6 +144,7 @@ if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
     st.success("Trabajador registrado exitosamente")
     st.experimental_rerun()
+
 
 
 
