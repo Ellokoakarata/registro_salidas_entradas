@@ -109,6 +109,15 @@ def mostrar_tiempo_trabajado(tiempo):
     else:
         return f"{seconds} segundos"
 
+# Función para crear un registro inicial para un nuevo trabajador
+def crear_registro_inicial(trabajador_id):
+    doc_ref = db.collection("registros").document(trabajador_id)
+    doc_ref.set({
+        "entradas": [],
+        "salidas": [],
+        "total_horas_trabajadas": "0:00:00"
+    })
+
 # Interfaz de usuario de Streamlit
 st.title("Registro de Entradas y Salidas de Trabajadores - Netsat SRL (Aplicación de prueba)")
 
@@ -146,22 +155,23 @@ if trabajador_seleccionado:
         # Campo de entrada para registrar eventos
         st.header("Registrar Entrada/Salida")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Registrar Entrada"):
-                if registrar_evento(trabajador_id, "entradas"):
-                    st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
-                else:
-                    st.warning("Ya se ha registrado una entrada hoy para este trabajador")
+        if st.button("Registrar Entrada"):
+            if registrar_evento(trabajador_id, "entradas"):
+                st.success("Entrada registrada para el trabajador " + trabajador_seleccionado)
+            else:
+                st.warning("Ya se ha registrado una entrada hoy para este trabajador")
 
-        with col2:
-            if st.button("Registrar Salida"):
-                if registrar_evento(trabajador_id, "salidas"):
-                    st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
-                else:
-                    st.warning("Ya se ha registrado una salida hoy para este trabajador")
+        if st.button("Registrar Salida"):
+            if registrar_evento(trabajador_id, "salidas"):
+                st.success("Salida registrada para el trabajador " + trabajador_seleccionado)
+            else:
+                st.warning("Ya se ha registrado una salida hoy para este trabajador")
     else:
         st.write("No se encontraron registros para el trabajador seleccionado.")
+        if st.button("Crear registro inicial"):
+            crear_registro_inicial(trabajador_id)
+            st.success("Registro inicial creado. Por favor, seleccione el trabajador nuevamente.")
+            st.rerun()
 
 # Registrar un nuevo usuario si no está en la lista
 st.header("Registrar Nuevo Trabajador")
@@ -170,5 +180,6 @@ nuevo_trabajador_nombre = st.text_input("Nombre del Nuevo Trabajador")
 if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajador_id = str(uuid.uuid4())
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
-    st.success("Trabajador registrado exitosamente")
+    crear_registro_inicial(trabajador_id)
+    st.success("Trabajador registrado exitosamente y registro inicial creado")
     st.rerun()
