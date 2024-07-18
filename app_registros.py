@@ -58,31 +58,51 @@ def registrar_evento(trabajador_nombre, tipo):
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": [], "total_horas_trabajadas": 0}
+        data = {"nombre": trabajador_nombre, "entradas": [], "salidas": []}
 
     evento = {
         "timestamp": datetime.now(pytz.utc).isoformat(),  # Hora actual en UTC
-        "timestamp_peru": convertir_a_hora_peru(datetime.now(pytz.utc)).isoformat(),  # Hora actual en Perú
         "tipo": tipo
     }
 
     if tipo == "entrada":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["entradas"].append(evento)
     elif tipo == "salida":
+        evento["timestamp_peru"] = convertir_a_hora_peru(datetime.now(pytz.utc))  # Hora actual en Perú
         data["salidas"].append(evento)
-        # Calcular horas trabajadas
-        if data["entradas"]:
-            # Obtener la última entrada registrada
-            entrada_mas_reciente = datetime.fromisoformat(data["entradas"][-1]["timestamp"])
-            # Obtener la hora de la salida actual
-            salida_mas_reciente = datetime.fromisoformat(evento["timestamp"])
-            # Calcular la diferencia en horas
-            horas_trabajadas = (salida_mas_reciente - entrada_mas_reciente).total_seconds() / 3600
-            # Sumar las horas trabajadas al total acumulado
-            data["total_horas_trabajadas"] += horas_trabajadas
 
-    # Guardar el registro actualizado en Firestore
     doc_ref.set(data)
+
+# Función para calcular el tiempo trabajado
+def calcular_tiempo_trabajado(data):
+    total_tiempo = timedelta()
+
+    entradas = data.get("entradas", [])
+    salidas = data.get("salidas", [])
+
+    for entrada in entradas:
+        timestamp_entrada = datetime.fromisoformat(entrada["timestamp"])
+        for salida in salidas:
+            timestamp_salida = datetime.fromisoformat(salida["timestamp"])
+            if timestamp_salida > timestamp_entrada:
+                total_tiempo += timestamp_salida - timestamp_entrada
+                break
+
+    return total_tiempo
+
+# Función para mostrar el tiempo trabajado en horas, minutos y segundos
+def mostrar_tiempo_trabajado(tiempo):
+    total_seconds = int(tiempo.total_seconds())
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours > 0:
+        return f"{hours} horas, {minutes} minutos, {seconds} segundos"
+    elif minutes > 0:
+        return f"{minutes} minutos, {seconds} segundos"
+    else:
+        return f"{seconds} segundos"
 
 # Interfaz de usuario de Streamlit
 st.title("Registro de Entradas y Salidas de Trabajadores")
@@ -122,8 +142,10 @@ if trabajador_nombre:
             for salida in data.get("salidas", []):
                 st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
-            total_horas_trabajadas = data.get("total_horas_trabajadas", 0)
-            st.write(f"Total de horas trabajadas: {total_horas_trabajadas:.2f} horas")
+            # Calcular y mostrar el tiempo trabajado
+            tiempo_trabajado = calcular_tiempo_trabajado(data)
+            st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
+
         else:
             st.write("No se encontraron registros para el trabajador " + trabajador_nombre)
     else:
