@@ -42,6 +42,13 @@ def parse_datetime(datetime_str):
         # Si falla, intentamos con un formato específico
         return datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S.%f%z")
 
+# Función para formatear la fecha y hora en formato de Perú
+def formatear_fecha_hora_peru(datetime_str):
+    fecha_hora = parse_datetime(datetime_str)
+    peru_tz = pytz.timezone('America/Lima')
+    fecha_hora_peru = fecha_hora.astimezone(peru_tz)
+    return fecha_hora_peru.strftime("%d/%m/%Y %I:%M:%S %p")
+
 # Función para verificar si ya se ha registrado una entrada o salida hoy
 def verificar_registro_hoy(data, tipo):
     hoy = datetime.now(pytz.utc).date()
@@ -142,11 +149,11 @@ if trabajador_seleccionado:
         data = doc.to_dict()
         st.write(f"Entradas para {trabajador_seleccionado}:")
         for entrada in data.get("entradas", []):
-            st.write(f"- {entrada['timestamp_peru']}")
+            st.write(f"- {formatear_fecha_hora_peru(entrada['timestamp'])}")
 
         st.write(f"Salidas para {trabajador_seleccionado}:")
         for salida in data.get("salidas", []):
-            st.write(f"- {salida['timestamp_peru']}")
+            st.write(f"- {formatear_fecha_hora_peru(salida['timestamp'])}")
 
         # Calcular y mostrar el tiempo trabajado
         tiempo_trabajado = data.get("total_horas_trabajadas", "0:00:00")
