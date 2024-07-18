@@ -43,7 +43,7 @@ def registrar_evento(trabajador_id, tipo):
     if doc.exists:
         data = doc.to_dict()
     else:
-        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()}
+        data = {"entradas": [], "salidas": [], "total_horas_trabajadas": 0}  # Usar 0 en lugar de timedelta
 
     ahora = datetime.now(pytz.utc)
 
@@ -70,7 +70,7 @@ def registrar_evento(trabajador_id, tipo):
         data["salidas"].append(evento)
         # Calcular el tiempo trabajado en esta sesión y sumarlo al total
         tiempo_trabajado_sesion = calcular_tiempo_trabajado(data)
-        data["total_horas_trabajadas"] += tiempo_trabajado_sesion
+        data["total_horas_trabajadas"] += tiempo_trabajado_sesion.total_seconds()  # Almacenar en segundos
 
     doc_ref.set(data)
 
@@ -129,7 +129,7 @@ if trabajador_seleccionado:
             st.write(f"- {convertir_a_hora_peru(datetime.fromisoformat(salida['timestamp']))}")
 
         # Calcular y mostrar el tiempo trabajado
-        tiempo_trabajado = calcular_tiempo_trabajado(data)
+        tiempo_trabajado = timedelta(seconds=data["total_horas_trabajadas"])  # Convertir de segundos a timedelta
         st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
 
         # Campo de entrada para registrar eventos
@@ -152,13 +152,13 @@ if nuevo_trabajador_nombre and st.button("Registrar Trabajador"):
     trabajadores_ref.document(trabajador_id).set({"nombre": nuevo_trabajador_nombre})
     
     # Crear un documento de registro inicial para el nuevo trabajador
-    db.collection("registros").document(trabajador_id).set({"entradas": [], "salidas": [], "total_horas_trabajadas": timedelta()})
+    db.collection("registros").document(trabajador_id).set({"entradas": [], "salidas": [], "total_horas_trabajadas": 0})  # Usar 0 en lugar de timedelta
 
     st.success("Trabajador registrado exitosamente")
     
     # Seleccionar el nuevo trabajador automáticamente
     st.session_state.trabajador_seleccionado = nuevo_trabajador_nombre
-    st.experimental_rerun()  # Recargar la interfaz
+    st.rerun()  # Recargar la interfaz
 
 # Verificar si hay un trabajador seleccionado en la sesión
 if 'trabajador_seleccionado' in st.session_state:
