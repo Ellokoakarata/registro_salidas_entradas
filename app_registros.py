@@ -38,7 +38,6 @@ def parse_datetime(datetime_str):
     try:
         return datetime.fromisoformat(datetime_str)
     except ValueError:
-        # Si falla, intentamos con un formato específico
         return datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S.%f%z")
 
 # Función para formatear la fecha y hora en formato de Perú
@@ -63,15 +62,12 @@ def calcular_tiempo_trabajado(data):
     entradas = sorted([parse_datetime(e["timestamp"]) for e in data.get("entradas", [])])
     salidas = sorted([parse_datetime(s["timestamp"]) for s in data.get("salidas", [])])
 
-    # Asegurarse de que hay al menos una entrada y una salida
     if not entradas or not salidas:
         return total_tiempo
 
-    # Si hay más entradas que salidas, añadir la hora actual como última salida
     if len(entradas) > len(salidas):
         salidas.append(datetime.now(pytz.utc))
 
-    # Calcular el tiempo trabajado para cada par de entrada-salida
     for entrada, salida in zip(entradas, salidas):
         if salida > entrada:
             total_tiempo += salida - entrada
@@ -80,8 +76,6 @@ def calcular_tiempo_trabajado(data):
 
 # Función para mostrar el tiempo trabajado en horas, minutos y segundos
 def mostrar_tiempo_trabajado(tiempo):
-    if isinstance(tiempo, str):
-        tiempo = timedelta(seconds=sum(float(x) * 60 ** i for i, x in enumerate(reversed(tiempo.split(':')))))
     total_seconds = int(tiempo.total_seconds())
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -112,14 +106,14 @@ def registrar_evento(trabajador_id, tipo):
     else:
         data = {"entradas": [], "salidas": [], "total_horas_trabajadas": "0:00:00"}
 
-    # Verificar si ya se ha registrado una entrada o salida hoy
     if verificar_registro_hoy(data, tipo):
         return False
 
     now = datetime.now(pytz.utc)
     evento = {
         "timestamp": now.isoformat(),
-        "timestamp_peru": convertir_a_hora_peru(now).strftime("%Y-%m-%d %H:%M:%S")
+        "timestamp_peru": convertir_a_hora_peru(now).strftime("%Y-%m-%d %H:%M:%S"),
+        "mes": now.strftime("%Y-%m")
     }
 
     if tipo == "entradas":
@@ -127,12 +121,16 @@ def registrar_evento(trabajador_id, tipo):
     elif tipo == "salidas":
         data["salidas"].append(evento)
     
-    # Calcular el tiempo trabajado después de cada registro
     tiempo_trabajado = calcular_tiempo_trabajado(data)
     data["total_horas_trabajadas"] = str(tiempo_trabajado)
 
     doc_ref.set(data)
     return True
+
+# Función para filtrar registros del mes actual
+def filtrar_registros_mes_actual(data, tipo):
+    mes_actual = datetime.now().strftime("%Y-%m")
+    return [registro for registro in data.get(tipo, []) if registro.get("mes") == mes_actual]
 
 # Interfaz de usuario de Streamlit
 st.title("Registro de Entradas y Salidas de Trabajadores - Netsat SRL (Aplicación de prueba)")
@@ -156,19 +154,20 @@ if trabajador_seleccionado:
 
     if doc.exists:
         data = doc.to_dict()
-        st.write(f"Entradas para {trabajador_seleccionado}:")
-        for entrada in data.get("entradas", []):
+        mes_actual = datetime.now().strftime("%B %Y")
+        st.write(f"Entradas para {trabajador_seleccionado} ({mes_actual}):")
+        entradas_mes_actual = filtrar_registros_mes_actual(data, "entradas")
+        for entrada in entradas_mes_actual:
             st.write(f"- {formatear_fecha_hora_peru(entrada['timestamp'])}")
 
-        st.write(f"Salidas para {trabajador_seleccionado}:")
-        for salida in data.get("salidas", []):
+        st.write(f"Salidas para {trabajador_seleccionado} ({mes_actual}):")
+        salidas_mes_actual = filtrar_registros_mes_actual(data, "salidas")
+        for salida in salidas_mes_actual:
             st.write(f"- {formatear_fecha_hora_peru(salida['timestamp'])}")
 
-        # Calcular y mostrar el tiempo trabajado
-        tiempo_trabajado = calcular_tiempo_trabajado(data)
+        tiempo_trabajado = calcular_tiempo_trabajado({"entradas": entradas_mes_actual, "salidas": salidas_mes_actual})
         st.write(f"Total de horas trabajadas: {mostrar_tiempo_trabajado(tiempo_trabajado)}")
 
-        # Campo de entrada para registrar eventos
         st.header("Registrar Entrada/Salida")
 
         if st.button("Registrar Entrada"):
@@ -189,7 +188,6 @@ if trabajador_seleccionado:
             st.success("Registro inicial creado. Por favor, seleccione el trabajador nuevamente.")
             st.rerun()
 else:
-    # Mostrar la opción de registrar nuevo trabajador solo si no se ha seleccionado ningún trabajador
     st.header("Registrar Nuevo Trabajador")
     nuevo_trabajador_nombre = st.text_input("Nombre del Nuevo Trabajador")
 
@@ -199,3 +197,4 @@ else:
         crear_registro_inicial(trabajador_id)
         st.success("Trabajador registrado exitosamente y registro inicial creado")
         st.rerun()
+
