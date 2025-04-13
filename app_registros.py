@@ -13,7 +13,6 @@ from openpyxl.styles import Border, Side
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 
-# Se asume que en st.secrets["firebase"] tienes el JSON de credenciales, incluyendo "storageBucket"
 firebase_secrets = st.secrets["firebase"]
 
 if not firebase_admin._apps:
@@ -39,12 +38,11 @@ bucket = storage.bucket()
 # ---------------------------
 # CONFIGURACIÓN DE HORARIOS
 # ---------------------------
-# Horarios permitidos (hora local de Perú)
 ENTRY_DEADLINE = 11    # Se permite marcar entrada solo hasta las 11:00 AM
 EXIT_START = 18        # Se permite marcar salida solo hasta las 6:00 PM
 
 # ---------------------------
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES EXISTENTES
 # ---------------------------
 def get_week_filename():
     """Genera el nombre del archivo según el año y la semana actual."""
@@ -124,8 +122,8 @@ def save_week_data_and_upload(df, filename):
             top=Side(style="thin"), 
             bottom=Side(style="thin")
         )
-        for ws in [writer.sheets['Registros'], writer.sheets['Resumen']]:
-            for row in ws.iter_rows():
+        for ws_sheet in [writer.sheets['Registros'], writer.sheets['Resumen']]:
+            for row in ws_sheet.iter_rows():
                 for cell in row:
                     cell.border = thin_border
 
@@ -181,7 +179,6 @@ def register_event(worker, event_type):
         if local_now.hour >= ENTRY_DEADLINE:
             return False, "Fuera del horario permitido para marcar entrada (hasta las 11:00 AM)."
     elif event_type == "salida":
-        # Se permite salida solo hasta las 6:00 PM
         if local_now.hour > EXIT_START or (local_now.hour == EXIT_START and local_now.minute > 0):
             return False, "Fuera del horario permitido para marcar salida (hasta las 6:00 PM)."
     
@@ -238,14 +235,94 @@ def get_worker_week_hours(worker):
     return total
 
 # ---------------------------
+# NUEVA FUNCIÓN: GENERAR ARCHIVO MENSUAL
+# ---------------------------
+def generate_monthly_file(selected_year, selected_month):
+    """
+    Reúne todos los registros de los archivos semanales almacenados en Firebase Storage correspondientes
+    al mes y año seleccionados. Filtra los registros en base a la columna "Fecha" (formato YYYY-MM-DD).
+    Genera un archivo Excel con dos hojas: "Registros" y "Resumen", manteniendo el estilo y formato.
+    Retorna el contenido binario del archivo.
+    """
+    # Listar todos los blobs que inician con "registro_"
+    blobs = list(bucket.list_blobs(prefix="registro_"))
+    # Lista para acumular DataFrames
+    monthly_dfs = []
+    for blob in blobs:
+        try:
+            data = blob.download_as_bytes()
+            df_week = pd.read_excel(io.BytesIO(data), sheet_name='Registros')
+            if not df_week.empty:
+                # Convertir la columna Fecha a datetime (asumiendo el formato YYYY-MM-DD)
+                df_week["Fecha_dt"] = pd.to_datetime(df_week["Fecha"], format="%Y-%m-%d", errors="coerce")
+                # Filtrar filas con el año y mes seleccionados
+                mask = (df_week["Fecha_dt"].dt.year == selected_year) & (df_week["Fecha_dt"].dt.month == selected_month)
+                df_filtered = df_week.loc[mask].drop(columns=["Fecha_dt"])
+                if not df_filtered.empty:
+                    monthly_dfs.append(df_filtered)
+        except Exception as e:
+            st.error(f"Error procesando el archivo {blob.name}: {e}")
+    
+    if not monthly_dfs:
+        st.error("No se encontraron registros para el mes y año seleccionados.")
+        return None
+
+    # Concatenar todos los registros
+    df_month = pd.concat(monthly_dfs, ignore_index=True)
+    # Crear DataFrame de resumen
+    resumen_month = create_summary_df(df_month)
+    
+    # Crear archivo Excel en memoria
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_month.to_excel(writer, sheet_name='Registros', index=False)
+        ws = writer.sheets['Registros']
+        # Autoajuste de columnas para 'Registros'
+        for col_cells in ws.columns:
+            max_length = 0
+            col_letter = col_cells[0].column_letter
+            for cell in col_cells:
+                if cell.value:
+                    cell_length = len(str(cell.value))
+                    if cell_length > max_length:
+                        max_length = cell_length
+            ws.column_dimensions[col_letter].width = max_length + 2
+
+        resumen_month.to_excel(writer, sheet_name='Resumen', index=False)
+        ws_resumen = writer.sheets['Resumen']
+        # Autoajuste de columnas para 'Resumen'
+        for col_cells in ws_resumen.columns:
+            max_length = 0
+            col_letter = col_cells[0].column_letter
+            for cell in col_cells:
+                if cell.value:
+                    cell_length = len(str(cell.value))
+                    if cell_length > max_length:
+                        max_length = cell_length
+            ws_resumen.column_dimensions[col_letter].width = max_length + 2
+
+        # Aplicar bordes a todas las celdas en ambas hojas
+        thin_border = Border(
+            left=Side(style="thin"),
+            right=Side(style="thin"),
+            top=Side(style="thin"),
+            bottom=Side(style="thin")
+        )
+        for ws_sheet in [ws, ws_resumen]:
+            for row in ws_sheet.iter_rows():
+                for cell in row:
+                    cell.border = thin_border
+
+    output.seek(0)
+    return output
+
+# ---------------------------
 # INTERFAZ DE USUARIO CON STREAMLIT
 # ---------------------------
 
-# Primero, se define la lista de usuarios (nombres)
-user_list = ["Hector Ruiz", "Ricardo Ruiz", "Nelida Ruiz", "Ricardo Adrian Ruiz", "Paula Lecaros"]
+# Lista de usuarios
+user_list = ["Nelida Ruiz", "Ricardo Adrian Ruiz", "Paula Lecaros"]
 
-# Se obtienen las contraseñas desde st.secrets (almacenadas en la sección [user_passwords])
-# Estas contraseñas no se muestran en la interfaz.
 user_passwords = st.secrets["user_passwords"]
 
 st.title("Registro de Entradas y Salidas (CLOUD: Firestore + Firebase Storage)")
@@ -254,12 +331,10 @@ with st.expander("Selecciona al Trabajador"):
     worker = st.selectbox("Elige tu nombre:", [""] + user_list)
 
 if worker:
-    # Solicitar contraseña sin mostrarla
     password_input = st.text_input("Ingrese su contraseña:", type="password")
     
     if password_input:
         if password_input == user_passwords.get(worker, ""):
-            # Si es admin, mostrar etiqueta
             if worker == "Ricardo Adrian Ruiz":
                 st.info("Bienvenido, ADMIN.")
             else:
@@ -286,19 +361,46 @@ if worker:
             total_hours = get_worker_week_hours(worker)
             st.write("Total de horas trabajadas esta semana:", str(total_hours))
             
-            # Solo el admin puede ver el resumen de todos los usuarios
             if worker == "Ricardo Adrian Ruiz":
+                st.subheader("Resumen Semanal General")
                 if st.button("Mostrar resumen de horas por trabajador"):
                     filename = get_week_filename()
                     df = load_week_data(filename)
                     resumen = create_summary_df(df)
                     st.dataframe(resumen)
             else:
-                # Los demás pueden ver únicamente sus registros
                 if st.button("Mostrar mis registros semanales"):
                     filename = get_week_filename()
                     df = load_week_data(filename)
                     worker_records = df[df["Nombre"] == worker]
                     st.dataframe(worker_records)
+            
+            # --- Sección ADMIN: Generar y descargar archivo mensual ---
+            if worker == "Ricardo Adrian Ruiz":
+                st.markdown("---")
+                st.subheader("Archivo Mensual")
+                col_year, col_month = st.columns(2)
+                with col_year:
+                    current_year = datetime.now().year
+                    selected_year = st.number_input("Elige el año", min_value=2000, max_value=current_year+1, value=current_year, step=1)
+                with col_month:
+                    month_names = [
+                        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                    ]
+                    selected_month_name = st.selectbox("Elige el mes", month_names)
+                    selected_month = month_names.index(selected_month_name) + 1
+                
+                if st.button("Generar archivo mensual"):
+                    output_buffer = generate_monthly_file(selected_year, selected_month)
+                    if output_buffer is not None:
+                        filename = f"registro_{selected_year}_{selected_month:02d}.xlsx"
+                        st.download_button(
+                            label="Descargar archivo mensual",
+                            data=output_buffer,
+                            file_name=filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
         else:
             st.error("Contraseña incorrecta. Intente nuevamente.")
+
