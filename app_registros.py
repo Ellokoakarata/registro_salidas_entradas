@@ -403,6 +403,11 @@ if worker:
                 st.markdown("---")
                 st.subheader("Descarga de registros semanales")
 
+                # Valores de año y mes para filtros y descargas
+                current_year = datetime.now().year
+                selected_year = st.session_state.get("selected_year", current_year)
+                selected_month = st.session_state.get("selected_month_num", datetime.now().month)
+
                 week_files = list_week_files()
 
                 if not week_files:
@@ -463,16 +468,36 @@ if worker:
                 with col_year:
                     current_year = datetime.now().year
                     selected_year = st.number_input(
-                        "Elige el año", min_value=2000, max_value=current_year+1,
-                        value=current_year, step=1
+                        "Elige el año",
+                        min_value=2000,
+                        max_value=current_year + 1,
+                        value=st.session_state.get("selected_year", current_year),
+                        step=1,
+                        key="selected_year",
                     )
                 with col_month:
                     month_names = [
-                        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+                        "Enero",
+                        "Febrero",
+                        "Marzo",
+                        "Abril",
+                        "Mayo",
+                        "Junio",
+                        "Julio",
+                        "Agosto",
+                        "Septiembre",
+                        "Octubre",
+                        "Noviembre",
+                        "Diciembre",
                     ]
-                    selected_month_name = st.selectbox("Elige el mes", month_names)
+                    selected_month_name = st.selectbox(
+                        "Elige el mes",
+                        month_names,
+                        index=st.session_state.get("selected_month_num", datetime.now().month) - 1,
+                        key="selected_month_name",
+                    )
                     selected_month = month_names.index(selected_month_name) + 1
+                    st.session_state["selected_month_num"] = selected_month
                 
                 if st.button("Generar archivo mensual"):
                     output_buffer = generate_monthly_file(selected_year, selected_month)
