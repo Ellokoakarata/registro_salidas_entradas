@@ -7,6 +7,11 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Border, Side
 
+# NUEVOS IMPORTS ---------------------------------------------
+import zipfile
+import re
+# ------------------------------------------------------------
+
 # ---------------------------
 # INICIALIZACIÓN DE FIREBASE
 # ---------------------------
@@ -244,18 +249,14 @@ def generate_monthly_file(selected_year, selected_month):
     Genera un archivo Excel con dos hojas: "Registros" y "Resumen", manteniendo el estilo y formato.
     Retorna el contenido binario del archivo.
     """
-    # Listar todos los blobs que inician con "registro_"
-    blobs = list(bucket.list_blobs(prefix="registro_"))
-    # Lista para acumular DataFrames
+    blobs = list(bucket.list_blobs(prefix="registro_"))  # lista de blobs
     monthly_dfs = []
     for blob in blobs:
         try:
             data = blob.download_as_bytes()
             df_week = pd.read_excel(io.BytesIO(data), sheet_name='Registros')
             if not df_week.empty:
-                # Convertir la columna Fecha a datetime (asumiendo el formato YYYY-MM-DD)
                 df_week["Fecha_dt"] = pd.to_datetime(df_week["Fecha"], format="%Y-%m-%d", errors="coerce")
-                # Filtrar filas con el año y mes seleccionados
                 mask = (df_week["Fecha_dt"].dt.year == selected_year) & (df_week["Fecha_dt"].dt.month == selected_month)
                 df_filtered = df_week.loc[mask].drop(columns=["Fecha_dt"])
                 if not df_filtered.empty:
@@ -267,17 +268,13 @@ def generate_monthly_file(selected_year, selected_month):
         st.error("No se encontraron registros para el mes y año seleccionados.")
         return None
 
-    # Concatenar todos los registros
     df_month = pd.concat(monthly_dfs, ignore_index=True)
-    # Crear DataFrame de resumen
     resumen_month = create_summary_df(df_month)
     
-    # Crear archivo Excel en memoria
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_month.to_excel(writer, sheet_name='Registros', index=False)
         ws = writer.sheets['Registros']
-        # Autoajuste de columnas para 'Registros'
         for col_cells in ws.columns:
             max_length = 0
             col_letter = col_cells[0].column_letter
@@ -290,7 +287,6 @@ def generate_monthly_file(selected_year, selected_month):
 
         resumen_month.to_excel(writer, sheet_name='Resumen', index=False)
         ws_resumen = writer.sheets['Resumen']
-        # Autoajuste de columnas para 'Resumen'
         for col_cells in ws_resumen.columns:
             max_length = 0
             col_letter = col_cells[0].column_letter
@@ -301,7 +297,6 @@ def generate_monthly_file(selected_year, selected_month):
                         max_length = cell_length
             ws_resumen.column_dimensions[col_letter].width = max_length + 2
 
-        # Aplicar bordes a todas las celdas en ambas hojas
         thin_border = Border(
             left=Side(style="thin"),
             right=Side(style="thin"),
@@ -317,12 +312,40 @@ def generate_monthly_file(selected_year, selected_month):
     return output
 
 # ---------------------------
+# NUEVAS FUNCIONES AUXILIARES PARA DESCARGAS ----------------
+_pattern_week = re.compile(r"registro_(\d{4})_W(\d{1,2})\.xlsx")
+
+def list_week_files() -> list[str]:
+    """Devuelve los blobs con patrón registro_YYYY_Www.xlsx (solo semanas)."""
+    return sorted(
+        [b.name for b in bucket.list_blobs(prefix="registro_") if _pattern_week.match(b.name)]
+    )
+
+def week_files_for_month(year: int, month: int, all_files: list[str]) -> list[str]:
+    """Filtra las semanas cuyo primer día ISO-week cae en el mes/año dados."""
+    target = []
+    for fname in all_files:
+        year_w, week = map(int, _pattern_week.match(fname).groups())
+        first_day = datetime.fromisocalendar(year_w, week, 1)
+        if first_day.year == year and first_day.month == month:
+            target.append(fname)
+    return target
+
+def zip_blobs(blob_names: list[str]) -> io.BytesIO:
+    """Crea un ZIP en memoria con los blobs dados y lo devuelve."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in blob_names:
+            data = bucket.blob(name).download_as_bytes()
+            zf.writestr(name, data)
+    buf.seek(0)
+    return buf
+
+# ---------------------------
 # INTERFAZ DE USUARIO CON STREAMLIT
 # ---------------------------
 
-# Lista de usuarios
 user_list = ["Nelida Ruiz", "Ricardo Adrian Ruiz", "Paula Lecaros"]
-
 user_passwords = st.secrets["user_passwords"]
 
 st.title("Registro de Entradas y Salidas (CLOUD: Firestore + Firebase Storage)")
@@ -375,14 +398,74 @@ if worker:
                     worker_records = df[df["Nombre"] == worker]
                     st.dataframe(worker_records)
             
-            # --- Sección ADMIN: Generar y descargar archivo mensual ---
+            # --- Sección ADMIN: Descarga de registros semanales ---------------
             if worker == "Ricardo Adrian Ruiz":
                 st.markdown("---")
-                st.subheader("Archivo Mensual")
+                st.subheader("Descarga de registros semanales")
+
+                week_files = list_week_files()
+
+                if not week_files:
+                    st.info("No hay archivos semanales en Firebase Storage.")
+                else:
+                    selected_file = st.selectbox(
+                        "Selecciona un archivo semanal para descargar:", [""] + week_files
+                    )
+
+                    col_dl_one, col_dl_month, col_dl_all = st.columns(3)
+
+                    # Descargar archivo individual
+                    with col_dl_one:
+                        if selected_file:
+                            data = bucket.blob(selected_file).download_as_bytes()
+                            st.download_button(
+                                label=f"Descargar {selected_file}",
+                                data=data,
+                                file_name=selected_file,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+
+                    # ZIP del mes seleccionado (usa año/mes elegidos arriba)
+                    with col_dl_month:
+                        if st.button("ZIP del mes seleccionado"):
+                            month_weeks = week_files_for_month(
+                                selected_year, selected_month, week_files
+                            )
+                            if month_weeks:
+                                buf = zip_blobs(month_weeks)
+                                zip_name = f"registros_{selected_year}_{selected_month:02d}.zip"
+                                st.download_button(
+                                    label=f"Descargar {zip_name}",
+                                    data=buf,
+                                    file_name=zip_name,
+                                    mime="application/zip"
+                                )
+                            else:
+                                st.warning("No hay semanas para ese mes.")
+
+                    # ZIP con todo el histórico
+                    with col_dl_all:
+                        if st.button("ZIP con TODO"):
+                            buf = zip_blobs(week_files)
+                            st.download_button(
+                                label="Descargar registros_all.zip",
+                                data=buf,
+                                file_name="registros_all.zip",
+                                mime="application/zip"
+                            )
+            
+            # --- Sección ADMIN: Generar y descargar archivo mensual -----------
+            if worker == "Ricardo Adrian Ruiz":
+                st.markdown("---")
+                st.subheader("Archivo Mensual (nuevo, generado al vuelo)")
+
                 col_year, col_month = st.columns(2)
                 with col_year:
                     current_year = datetime.now().year
-                    selected_year = st.number_input("Elige el año", min_value=2000, max_value=current_year+1, value=current_year, step=1)
+                    selected_year = st.number_input(
+                        "Elige el año", min_value=2000, max_value=current_year+1,
+                        value=current_year, step=1
+                    )
                 with col_month:
                     month_names = [
                         "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -403,4 +486,3 @@ if worker:
                         )
         else:
             st.error("Contraseña incorrecta. Intente nuevamente.")
-
